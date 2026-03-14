@@ -1,70 +1,35 @@
 require('dotenv').config();
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const { Client: DcClient, GatewayIntentBits } = require('discord.js');
 const qrcode = require('qrcode');
 const http = require('http');
+const pino = require('pino');
 
 let lastQR = null;
+let waSocket = null;
 
+// ── Serveur HTTP pour afficher le QR ─────────────────────────
 http.createServer(async (req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   if (lastQR) {
     const img = await qrcode.toDataURL(lastQR);
-    res.writeHead(200, { 'Content-Type': 'text/html' });
     res.end(`<html><body style="background:#111;display:flex;align-items:center;justify-content:center;height:100vh">
       <div style="text-align:center">
         <p style="color:white;font-family:sans-serif;font-size:18px">Scanne avec WhatsApp</p>
         <img src="${img}" style="width:300px"/>
-        <p style="color:#aaa;font-family:sans-serif">Rafraîchis la page si le QR expire</p>
+        <p style="color:#aaa;font-family:sans-serif">Rafraichis la page si le QR expire</p>
       </div>
     </body></html>`);
   } else {
-    res.writeHead(200, { 'Content-Type': 'text/html' });
     res.end(`<html><body style="background:#111;display:flex;align-items:center;justify-content:center;height:100vh">
-      <p style="color:white;font-family:sans-serif;font-size:20px">✅ WhatsApp connecté (ou démarrage en cours...)</p>
+      <p style="color:white;font-family:sans-serif;font-size:20px">✅ WhatsApp connecte !</p>
     </body></html>`);
   }
 }).listen(process.env.PORT || 3000, () => {
-  console.log('🌐 Serveur QR démarré');
+  console.log('🌐 Serveur QR demarre');
 });
 
-const waClient = new Client({
-  authStrategy: new LocalAuth({ dataPath: '/app/.wwebjs_auth' }),
-  puppeteer: {
-    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-      '--no-first-run',
-      '--no-zygote',
-      '--single-process'
-    ]
-  }
-});
-
-waClient.on('qr', qr => {
-  lastQR = qr;
-  console.log('📱 QR prêt — ouvre ton URL Railway pour le scanner');
-});
-
-waClient.on('authenticated', () => {
-  lastQR = null;
-  console.log('🔐 WhatsApp authentifié');
-});
-
-waClient.on('ready', () => {
-  console.log('✅ WhatsApp connecté');
-});
-
-waClient.on('auth_failure', msg => {
-  console.error('❌ Auth échouée:', msg);
-});
-
-waClient.on('disconnected', reason => {
-  console.log('⚠️ Déconnecté:', reason);
-});
-
+// ── Discord ───────────────────────────────────────────────────
 const dcClient = new DcClient({
   intents: [
     GatewayIntentBits.Guilds,
@@ -74,21 +39,61 @@ const dcClient = new DcClient({
 });
 
 dcClient.on('ready', () => {
-  console.log(`✅ Discord connecté : ${dcClient.user.tag}`);
+  console.log(`✅ Discord connecte : ${dcClient.user.tag}`);
 });
 
-// WhatsApp → Discord
-waClient.on('message', async msg => {
-  if (msg.fromMe) return;
-  try {
-    const contact = await msg.getContact();
-    const name = contact.pushname || contact.number || msg.from;
-    const channel = await dcClient.channels.fetch(process.env.DISCORD_CHANNEL_ID);
-    await channel.send(`📱 **${name}** : ${msg.body}`);
-  } catch (e) {
-    console.error('Erreur WA→DC:', e.message);
-  }
-});
+// ── WhatsApp avec Baileys (sans Chromium) ─────────────────────
+async function startWhatsApp() {
+  const { state, saveCreds } = await useMultiFileAuthState('/app/.wa_auth');
+
+  waSocket = makeWASocket({
+    auth: state,
+    logger: pino({ level: 'silent' }),
+    printQRInTerminal: false
+  });
+
+  waSocket.ev.on('creds.update', saveCreds);
+
+  waSocket.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
+    if (qr) {
+      lastQR = qr;
+      console.log('📱 QR pret — ouvre ton URL Railway');
+    }
+    if (connection === 'open') {
+      lastQR = null;
+      console.log('✅ WhatsApp connecte');
+    }
+    if (connection === 'close') {
+      const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
+      console.log('⚠️ Deconnecte, reconnexion:', shouldReconnect);
+      if (shouldReconnect) {
+        setTimeout(startWhatsApp, 3000);
+      }
+    }
+  });
+
+  // WhatsApp → Discord
+  waSocket.ev.on('messages.upsert', async ({ messages }) => {
+    for (const msg of messages) {
+      if (msg.key.fromMe) continue;
+      if (!msg.message) continue;
+
+      const text = msg.message.conversation
+        || msg.message.extendedTextMessage?.text
+        || '[media]';
+
+      const from = msg.key.remoteJid;
+      const name = msg.pushName || from;
+
+      try {
+        const channel = await dcClient.channels.fetch(process.env.DISCORD_CHANNEL_ID);
+        await channel.send(`📱 **${name}** : ${text}`);
+      } catch (e) {
+        console.error('Erreur WA→DC:', e.message);
+      }
+    }
+  });
+}
 
 // Discord → WhatsApp  (!wa +33612345678 message)
 dcClient.on('messageCreate', async msg => {
@@ -96,9 +101,13 @@ dcClient.on('messageCreate', async msg => {
   if (msg.channelId !== process.env.DISCORD_CHANNEL_ID) return;
   const match = msg.content.match(/^!wa\s+(\+\d+)\s+(.+)/s);
   if (!match) return;
+  if (!waSocket) {
+    await msg.react('❌');
+    return;
+  }
   try {
-    const number = match[1].replace('+', '') + '@c.us';
-    await waClient.sendMessage(number, match[2]);
+    const number = match[1].replace('+', '') + '@s.whatsapp.net';
+    await waSocket.sendMessage(number, { text: match[2] });
     await msg.react('✅');
   } catch (e) {
     await msg.react('❌');
@@ -106,5 +115,24 @@ dcClient.on('messageCreate', async msg => {
   }
 });
 
+process.on('unhandledRejection', err => {
+  console.error('Erreur:', err.message);
+});
+
+// ── Start ─────────────────────────────────────────────────────
 dcClient.login(process.env.DISCORD_TOKEN);
-waClient.initialize();
+startWhatsApp();
+```
+
+---
+
+## Nouveau `Dockerfile` — beaucoup plus léger, plus de Chromium !
+```
+FROM node:20-slim
+
+WORKDIR /app
+COPY package*.json ./
+RUN npm install --omit=dev
+COPY . .
+
+CMD ["node", "index.js"]
