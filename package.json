@@ -1,13 +1,14 @@
 {
-"name": "wa-discord-token-bot",
-"version": "1.0.0",
-"main": "index.js",
-"scripts": {
-"start": "node index.js"
-},
-"dependencies": {
-"@whiskeysockets/baileys": "^6.7.5",
-"discord.js": "^14.14.1",
-"pino": "^8.0.0"
-}
+  "name": "wa-discord-final-bot",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.5",
+    "discord.js": "^14.14.1",
+    "pino": "^8.0.0",
+    "dotenv": "^16.4.0"
+  }
 }
