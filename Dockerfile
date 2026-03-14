@@ -1,0 +1,26 @@
+FROM node:20-slim
+
+RUN apt-get update && apt-get install -y \
+    chromium \
+    fonts-freefont-ttf \
+    --no-install-recommends && rm -rf /var/lib/apt/lists/*
+
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --omit=dev
+COPY . .
+
+CMD ["node", "index.js"]
+```
+
+### `index.js`
+→ Le fichier complet du message d'avant (le grand avec le serveur HTTP + WhatsApp + Discord)
+
+### `.gitignore`
+```
+node_modules/
+.env
+.wwebjs_auth/
