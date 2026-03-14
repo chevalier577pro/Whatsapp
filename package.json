@@ -1,0 +1,13 @@
+{
+"name": "wa-discord-token-bot",
+"version": "1.0.0",
+"main": "index.js",
+"scripts": {
+"start": "node index.js"
+},
+"dependencies": {
+"@whiskeysockets/baileys": "^6.7.5",
+"discord.js": "^14.14.1",
+"pino": "^8.0.0"
+}
+}
