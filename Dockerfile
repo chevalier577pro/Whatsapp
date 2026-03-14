@@ -1,6 +1,11 @@
 FROM node:20-slim
 
-RUN apt-get update && apt-get install -y git openssh-client --no-install-recommends && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y \
+    git \
+    openssh-client \
+    ca-certificates \
+    --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN git config --global url."https://".insteadOf ssh://
 
