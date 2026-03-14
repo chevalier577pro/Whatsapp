@@ -1,7 +1,7 @@
 const { default: makeWASocket, useMultiFileAuthState } = require("@whiskeysockets/baileys")
 const P = require("pino")
 
-async function start() {
+async function start(){
 
 const { state, saveCreds } = await useMultiFileAuthState("auth")
 
@@ -10,21 +10,21 @@ logger: P({ level: "silent" }),
 auth: state
 })
 
+sock.ev.on("creds.update", saveCreds)
+
 sock.ev.on("connection.update", async (update) => {
 
-const { connection, pairingCode } = update
-
-if(pairingCode){
-console.log("Code de connexion :", pairingCode)
-}
+const { connection } = update
 
 if(connection === "open"){
+
 console.log("WhatsApp connecté")
 
 const session = Buffer.from(JSON.stringify(state.creds)).toString("base64")
 
-console.log("\nSESSION_ID :\n")
+console.log("\n===== SESSION_ID =====\n")
 console.log(session)
+console.log("\n======================\n")
 
 process.exit()
 
@@ -32,7 +32,18 @@ process.exit()
 
 })
 
-sock.ev.on("creds.update", saveCreds)
+// ⚡ génération du code
+const phone = process.env.PHONE_NUMBER
+
+setTimeout(async () => {
+
+const code = await sock.requestPairingCode(phone)
+
+console.log("\n===== CODE WHATSAPP =====\n")
+console.log(code)
+console.log("\n=========================\n")
+
+}, 3000)
 
 }
 
