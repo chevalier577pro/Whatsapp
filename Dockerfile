@@ -14,13 +14,3 @@ RUN npm ci --omit=dev
 COPY . .
 
 CMD ["node", "index.js"]
-```
-
-### `index.js`
-→ Le fichier complet du message d'avant (le grand avec le serveur HTTP + WhatsApp + Discord)
-
-### `.gitignore`
-```
-node_modules/
-.env
-.wwebjs_auth/
